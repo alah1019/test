@@ -1,0 +1,571 @@
+using System.Net.Sockets;
+using System.Net;
+using UnityEngine;
+using System.Text;
+using TMPro;
+using System;
+using NativeWebSocket;
+using UnityEngine.XR;
+
+public class FaceControl : MonoBehaviour
+{
+    public WebSocket webSocket;
+    public string WS = "ws://127.0.0.1:3344";
+    public UdpClient udpClient = new UdpClient();
+    public IPEndPoint from = new IPEndPoint(0, 0);
+    private object obj = null;
+    byte[] receivedBytes;
+    public string displayEmotion = "";
+    private string lastEmotion = "init";
+
+    public SkinnedMeshRenderer eyeLeft;
+    public SkinnedMeshRenderer eyeRight;
+
+    public FaceEmotion faceEmotion;
+    public Face targetFace;
+    public Face startFace;
+    private static float t = 0.0f;
+
+    void Start()
+    {
+        Debug.Log("start FaceControl");
+        faceEmotion = new FaceEmotion();
+    }
+
+    public void connectToWebsocket(string websocketDescription) {
+        Debug.Log("connect TO WS " + WS);
+        this.WS = WS;
+        webSocket = new WebSocket(WS);
+        
+        webSocket.OnMessage += (data) =>
+        {
+            Debug.Log("onMessage");
+            var message = System.Text.Encoding.UTF8.GetString(data);
+
+            displayEmotion = message;
+        };
+
+        webSocket.OnOpen += () =>
+        {
+            Debug.Log("ws connect");
+        };
+
+        webSocket.OnError += (error) =>
+        {
+            Debug.Log("ws error " + error);
+        };
+        webSocket.Connect();
+    }
+
+
+    void ReceivedUDPPacket(IAsyncResult result)
+    {
+        //var recvBuffer = udpClient.EndReceive(result, ref from);
+
+        //displayEmotion = Encoding.UTF8.GetString(recvBuffer);
+        //Debug.Log(displayEmotion);
+        //Debug.Log(GameObject.Find("Emotion").GetComponent<TextMeshPro>());
+        GameObject.Find("Emotion").GetComponent<TextMeshPro>().text = displayEmotion;
+
+        this.gameObject.transform.Rotate(new Vector3(1, 0, 0), 1.2f);
+        this.gameObject.transform.Rotate(new Vector3(0, 1, 0), 1.8f);
+    }
+
+    private void FixedUpdate()
+    {
+
+    }
+    void Update()
+    {
+        //udpClient.BeginReceive(new AsyncCallback(ReceivedUDPPacket), obj);
+
+#if !UNITY_WEBGL || UNITY_EDITOR
+        if (this.webSocket != null)
+        {
+            webSocket.DispatchMessageQueue();
+        }
+        
+#endif
+
+        //Debug.Log(GameObject.Find("Emotion").GetComponent<TextMeshProUGUI>());
+        //GameObject.Find("Emotion").GetComponent<TextMeshProUGUI>().text = displayEmotion;
+
+
+        if (lastEmotion != displayEmotion)
+        {
+            this.startFace = this.getStartFace(eyeLeft, eyeRight);
+            //Debug.Log("startFace: " + startFace);
+            this.targetFace = faceEmotion.getEyeShapeValuesByEmotion(displayEmotion);
+            t = 0.0f;
+        }
+        this.setFace(eyeLeft, eyeRight, this.startFace, this.targetFace);
+
+        lastEmotion = displayEmotion;
+    }
+
+    Face getStartFace(SkinnedMeshRenderer leftEye, SkinnedMeshRenderer rightEye)
+    {
+        EmotionShapes tmpLeftEye = new EmotionShapes();
+        EmotionShapes tmpRightEye = new EmotionShapes();
+
+        tmpLeftEye.Angry = leftEye.GetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Angry);
+        tmpLeftEye.disgust_ = leftEye.GetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.disgust_);
+       // tmpLeftEye.full = leftEye.GetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Full);
+        tmpLeftEye.Fear = leftEye.GetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Fear);
+        tmpLeftEye.Sad = leftEye.GetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Sad);
+        tmpLeftEye.Happy = leftEye.GetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Happy);
+        tmpLeftEye.contempt = leftEye.GetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.contempt);
+        tmpLeftEye.Surprise = leftEye.GetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Surprise);
+
+
+        tmpRightEye.Angry = rightEye.GetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Angry);
+        tmpRightEye.disgust_ = rightEye.GetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.disgust_);
+        //tmpRightEye.full = rightEye.GetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Full);
+        tmpRightEye.Fear = rightEye.GetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Fear);
+        tmpRightEye.Sad = rightEye.GetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Sad);
+        tmpRightEye.Happy = rightEye.GetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Happy);
+        tmpRightEye.contempt = rightEye.GetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.contempt);
+        tmpRightEye.Surprise = rightEye.GetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Surprise);
+
+
+
+        return new Face(tmpLeftEye, tmpRightEye);
+    }
+
+    void setFace(SkinnedMeshRenderer leftEye, SkinnedMeshRenderer rightEye, Face startFace, Face targetFace)
+    {
+        this.SetEye(leftEye, "left", startFace, targetFace);
+        this.SetEye(rightEye, "right", startFace, targetFace);
+    }
+    void SetEye(SkinnedMeshRenderer eye, string eyePosition, Face startFace, Face targetFace)
+    {
+        EmotionShapes eyeBlendshapeDataStart = new EmotionShapes();
+        EmotionShapes eyeBlendshapeDataEnd = new EmotionShapes();
+
+        //Debug.Log(startFace);
+        //Debug.Log(targetFace);
+        if (eyePosition == "left")
+        {
+            eyeBlendshapeDataStart = startFace.leftEye;
+            eyeBlendshapeDataEnd = targetFace.leftEye;
+        }
+        else if (eyePosition == "right")
+        {
+            eyeBlendshapeDataStart = startFace.rightEye;
+            eyeBlendshapeDataEnd = targetFace.rightEye;
+        }
+
+       // eye.SetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Full, Mathf.Lerp(eyeBlendshapeDataStart.full, eyeBlendshapeDataEnd.full * 100, t));
+        eye.SetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Sad, Mathf.Lerp(eyeBlendshapeDataStart.Sad, eyeBlendshapeDataEnd.Sad * 100, t));
+        eye.SetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Fear, Mathf.Lerp(eyeBlendshapeDataStart.Fear, eyeBlendshapeDataEnd.Fear * 100, t));
+        eye.SetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.disgust_, Mathf.Lerp(eyeBlendshapeDataStart.disgust_, eyeBlendshapeDataEnd.disgust_ * 100, t));
+        eye.SetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Happy, Mathf.Lerp(eyeBlendshapeDataStart.Happy, eyeBlendshapeDataEnd.Happy * 100, t));
+        eye.SetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Angry, Mathf.Lerp(eyeBlendshapeDataStart.Angry, eyeBlendshapeDataEnd.Angry * 100, t));
+        eye.SetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.contempt, Mathf.Lerp(eyeBlendshapeDataStart.contempt, eyeBlendshapeDataEnd.contempt * 100, t));
+        eye.SetBlendShapeWeight((int)EmotionShapes.blendshapeNumbers.Surprise, Mathf.Lerp(eyeBlendshapeDataStart.Surprise, eyeBlendshapeDataEnd.Surprise * 100, t));
+
+
+
+        t += 1.5f * Time.deltaTime;
+    }
+
+}
+
+public class FaceEmotion
+{
+    public Anger anger;
+    public Anticipation anticipation;
+    public Joy joy;
+    public Trust trust;
+    public Fear fear;
+    public Surprise surprise;
+    public Sadness sadness;
+    public Disgust disgust;
+    public Contempt contempt;
+    public Neutral neutral;
+
+
+    public FaceEmotion()
+    {
+        this.anger = new Anger();
+        this.anticipation = new Anticipation();
+        this.joy = new Joy();
+        this.trust = new Trust();
+        this.fear = new Fear();
+        this.surprise = new Surprise();
+        this.sadness = new Sadness();
+        this.disgust = new Disgust();
+        this.contempt = new Contempt();
+        this.neutral = new Neutral();
+    }
+
+    public Face getEyeShapeValuesByEmotion(string emotion)
+    {
+        switch (emotion)
+        {
+            case "Annoyance":
+                return this.anger.annoyance;
+                break;
+            case "Anger":
+                return this.anger.anger;
+                break;
+            case "Rage":
+                return this.anger.rage;
+                break;
+            case "Vigilance":
+                return this.anticipation.vigilance;
+                break;
+            case "Anticipation":
+                return this.anticipation.anticipation;
+                break;
+            case "Interest":
+                return this.anticipation.interest;
+                break;
+            case "Serenety":
+                return this.joy.serenety;
+                break;
+            case "Joy":
+                return this.joy.joy;
+                break;
+            case "Ecstasy":
+                return this.joy.ecstasy;
+                break;
+            case "Accepptance":
+                return this.trust.acceptance;
+                break;
+            case "Trust":
+                return this.trust.trust;
+                break;
+            case "Admiration":
+                return this.trust.admiration;
+                break;
+            case "Apprehension":
+                return this.fear.apprehension;
+                break;
+            case "Fear":
+                return this.fear.fear;
+                break;
+            case "Terror":
+                return this.fear.terror;
+                break;
+            case "Distraction":
+                return this.surprise.distraction;
+                break;
+            case "Surprise":
+                return this.surprise.surprise;
+                break;
+            case "Amazement":
+                return this.surprise.amazement;
+                break;
+            case "Pensiveness":
+                return this.sadness.pensiveness;
+                break;
+            case "Sadness":
+                return this.sadness.sadness;
+                break;
+            case "Grief":
+                return this.sadness.grief;
+                break;
+            case "Boredom":
+                return this.disgust.boredom;
+                break;
+            case "Disgust":
+                return this.disgust.disgust;
+                break;
+            case "Loathing":
+                return this.disgust.loathing;
+                break;
+            case "Contempt":
+                return this.contempt.contempt;
+                break;
+            case "Neutral":
+                return this.neutral.neutral;
+                break;
+            default:
+                return this.neutral.neutral;
+                break;
+        }
+
+        return this.neutral.neutral;
+    }
+}
+
+public class Anger
+{
+    public Face annoyance;
+    public Face anger;
+    public Face rage;
+
+    public Anger()
+    {
+        EmotionShapes lShape = new EmotionShapes();
+        EmotionShapes rShape = new EmotionShapes();
+        lShape.Angry = 0.33f;
+        rShape.Angry = 0.33f;
+        annoyance = new Face(lShape, rShape);
+
+        lShape = new EmotionShapes();
+        rShape = new EmotionShapes();
+        lShape.Angry = 0.66f;
+        rShape.Angry = 0.66f;
+        anger = new Face(lShape, rShape);
+
+        lShape = new EmotionShapes();
+        rShape = new EmotionShapes();
+        lShape.Angry = 1.0f;
+        rShape.Angry = 1.0f;
+      
+        rage = new Face(lShape, rShape);
+    }
+}
+public class Anticipation
+{
+    public Face interest;
+    public Face anticipation;
+    public Face vigilance;
+    public Anticipation()
+    {
+        EmotionShapes lShape = new EmotionShapes();
+        EmotionShapes rShape = new EmotionShapes();
+        lShape.disgust_ = 0.3f;
+        rShape.disgust_ = 0.3f;
+        interest = new Face(lShape, rShape);
+
+        lShape = new EmotionShapes();
+        rShape = new EmotionShapes();
+        lShape.disgust_ = 0.3f;
+        rShape.disgust_ = 0.3f;
+        anticipation = new Face(lShape, rShape);
+
+        lShape = new EmotionShapes();
+        rShape = new EmotionShapes();
+        lShape.disgust_ = 0.3f;
+        rShape.disgust_ = 0.3f;
+        vigilance = new Face(lShape, rShape);
+    }
+}
+
+public class Joy
+{
+    public Face serenety;
+    public Face joy;
+    public Face ecstasy;
+    public Joy()
+    {
+        EmotionShapes lShape = new EmotionShapes();
+        EmotionShapes rShape = new EmotionShapes();
+        lShape.Happy= 0.33f;
+        rShape.Happy = 0.33f;
+        serenety = new Face(lShape, rShape);
+
+        lShape = new EmotionShapes();
+        rShape = new EmotionShapes();
+        lShape.Happy = 0.33f;
+        rShape.Happy = 0.33f;
+        joy = new Face(lShape, rShape);
+
+        lShape = new EmotionShapes();
+        rShape = new EmotionShapes();
+        lShape.Happy = 1.0f;
+        rShape.Happy = 1.0f;
+      
+        ecstasy = new Face(lShape, rShape);
+    }
+}
+
+public class Trust
+{
+    public Face acceptance;
+    public Face trust;
+    public Face admiration;
+
+    public Trust()
+    {
+        EmotionShapes lShape = new EmotionShapes();
+        EmotionShapes rShape = new EmotionShapes();
+        lShape.Happy = 0.33f;
+        rShape.Happy = 0.33f;
+        acceptance = new Face(lShape, rShape);
+
+        lShape = new EmotionShapes();
+        rShape = new EmotionShapes();
+        lShape.Happy = 1.0f;
+        rShape.Happy = 1.0f;
+        trust = new Face(lShape, rShape);
+
+        lShape = new EmotionShapes();
+        rShape = new EmotionShapes();
+       
+        admiration = new Face(lShape, rShape);
+    }
+}
+
+public class Fear
+{
+    public Face apprehension;
+    public Face fear;
+    public Face terror;
+
+    public Fear()
+    {
+        EmotionShapes lShape = new EmotionShapes();
+        EmotionShapes rShape = new EmotionShapes();
+        lShape.Fear = 0.33f;
+        rShape.Fear = 0.33f;
+        apprehension = new Face(lShape, rShape);
+
+        lShape = new EmotionShapes();
+        rShape = new EmotionShapes();
+        lShape.Fear = 0.66f;
+        rShape.Fear = 0.66f;
+        fear = new Face(lShape, rShape);
+
+        lShape = new EmotionShapes();
+        rShape = new EmotionShapes();
+        lShape.Fear = 1.0f;
+        rShape.Fear = 1.0f;
+       
+        terror = new Face(lShape, rShape);
+    }
+}
+
+public class Surprise
+{
+    public Face distraction;
+    public Face surprise;
+    public Face amazement;
+
+    public Surprise()
+    {
+        EmotionShapes lShape = new EmotionShapes();
+        EmotionShapes rShape = new EmotionShapes();
+        lShape.Surprise = 1.0f;
+        rShape.Surprise = 1.0f;
+        distraction = new Face(lShape, rShape);
+
+        lShape = new EmotionShapes();
+        rShape = new EmotionShapes();
+        lShape.Surprise = 0.33f;
+        rShape.Surprise = 1.33f;
+
+        surprise = new Face(lShape, rShape);
+
+        lShape = new EmotionShapes();
+        rShape = new EmotionShapes();
+        lShape.Surprise = 1.0f;
+        rShape.Surprise = 1.0f;
+       
+        amazement = new Face(lShape, rShape);
+    }
+}
+
+public class Sadness
+{
+    public Face pensiveness;
+    public Face sadness;
+    public Face grief;
+
+    public Sadness()
+    {
+        EmotionShapes lShape = new EmotionShapes();
+        EmotionShapes rShape = new EmotionShapes();
+        lShape.Sad = 0.33f;
+        rShape.Sad = 0.33f;
+        pensiveness = new Face(lShape, rShape);
+
+        lShape = new EmotionShapes();
+        rShape = new EmotionShapes();
+        lShape.Sad = 0.66f;
+        rShape.Sad = 0.66f;
+        sadness = new Face(lShape, rShape);
+
+        lShape = new EmotionShapes();
+        rShape = new EmotionShapes();
+        lShape.Sad = 1.0f;
+        rShape.Sad = 1.0f;
+
+        grief = new Face(lShape, rShape);
+    }
+}
+
+public class Disgust
+{
+    public Face boredom;
+    public Face disgust;
+    public Face loathing;
+
+    public Disgust()
+    {
+        EmotionShapes lShape = new EmotionShapes();
+        EmotionShapes rShape = new EmotionShapes();
+        lShape.disgust_ = 0.33f;
+        rShape.disgust_ = 0.33f;
+        boredom = new Face(lShape, rShape);
+
+        lShape = new EmotionShapes();
+        rShape = new EmotionShapes();
+        lShape.disgust_ = 0.66f;
+        rShape.disgust_ = 0.66f;
+        disgust = new Face(lShape, rShape);
+
+        lShape = new EmotionShapes();
+        rShape = new EmotionShapes();
+        lShape.disgust_ = 1.0f;
+        rShape.disgust_ = 1.0f;
+     
+        loathing = new Face(lShape, rShape);
+    }
+}
+
+public class Contempt
+{
+    public Face contempt;
+
+    public Contempt()
+    {
+        EmotionShapes lShape = new EmotionShapes();
+        EmotionShapes rShape = new EmotionShapes();
+        lShape.contempt = 1.0f;
+        rShape.contempt = 1.0f;
+        contempt = new Face(lShape, rShape);
+    }
+}
+
+public class Neutral
+{
+    public Face neutral;
+
+    public Neutral()
+    {
+        EmotionShapes lShape = new EmotionShapes();
+        EmotionShapes rShape = new EmotionShapes();
+
+        neutral = new Face(lShape, rShape);
+    }
+}
+
+public class Face
+{
+    public EmotionShapes leftEye;
+    public EmotionShapes rightEye;
+
+    public Face(EmotionShapes leftEye, EmotionShapes rightEye)
+    {
+        this.leftEye = leftEye;
+        this.rightEye = rightEye;
+    }
+}
+
+public class EmotionShapes
+{
+    public enum blendshapeNumbers { disgust_, Happy, Fear, Sad, Surprise, contempt, Angry }
+
+    public float disgust_ = 0;
+    public float Happy = 0;
+    public float Fear = 0;
+    public float Sad = 0;
+    public float Surprise = 0;
+    public float contempt = 0;
+    public float Angry = 0;
+
+}
